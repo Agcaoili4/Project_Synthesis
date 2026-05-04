@@ -105,17 +105,69 @@ project-synthesis/
 
 **Architectural rule:** `domain/` never imports from `infrastructure/`. Adapters are swappable — swapping Ollama for Claude API is a one-file change in `infrastructure/llm/`.
 
-## Running v0 (after setup)
+## Running v0
+
+From the repo root, use the project virtual environment. The brain must be
+running before the daemon can talk and speak.
+
+### 1. Prepare the environment
 
 ```bash
-# Terminal 1 — the brain
-uvicorn app.main:app --port 8000
+# Create the virtualenv if it does not already exist
+uv venv --python 3.12
 
-# Terminal 2 — the daemon
-python -m app.daemon
+# Install runtime + test dependencies
+uv pip install --python .venv/bin/python -e ".[test]"
+```
 
-# Then say "Hey Synthesis" and start talking.
-# Inspect the live transcript at http://localhost:8000
+### 2. Start Ollama
+
+Synthesis uses Ollama for the local LLM. Make sure Ollama is running and the
+configured model exists:
+
+```bash
+ollama serve
+```
+
+In another terminal:
+
+```bash
+ollama pull qwen2.5:7b-instruct-q4_K_M
+```
+
+### 3. Run the brain
+
+Terminal 1:
+
+```bash
+.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000
+```
+
+Check the text API:
+
+```bash
+curl -X POST http://127.0.0.1:8000/converse \
+  -H "Content-Type: application/json" \
+  -d '{"transcript":"hello","session_id":"manual-test"}'
+```
+
+The dashboard is available at `http://127.0.0.1:8000`.
+
+### 4. Run the voice daemon
+
+Terminal 2:
+
+```bash
+.venv/bin/python -m app.daemon
+```
+
+Then say the wake word and start talking. The daemon handles microphone input,
+speech-to-text, the brain request, and macOS `say` text-to-speech output.
+
+### 5. Run tests
+
+```bash
+.venv/bin/python -m pytest tests/unit
 ```
 
 ## Security Notes

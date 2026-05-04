@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException
 
 from app.application.converse import InMemoryConversationStore
+from app.domain.conversation import Role
 from app.schemas.converse import TranscriptMessage, TranscriptResponse
 
 
@@ -21,6 +22,7 @@ def build_router(store: InMemoryConversationStore) -> APIRouter:
                     created_at=m.created_at.isoformat(),
                 )
                 for m in conv.messages
+                if m.role != Role.SYSTEM
             ],
         )
 

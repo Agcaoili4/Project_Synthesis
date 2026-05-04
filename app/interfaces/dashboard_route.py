@@ -71,7 +71,7 @@ def build_router(store: InMemoryConversationStore) -> APIRouter:
                 f'<div class="role">{_escape(m.role.value)}</div>{_escape(m.content)}'
                 f"</div>"
                 for m in conv.messages
-                if m.role is not Role.SYSTEM
+                if m.role != Role.SYSTEM
             )
             parts.append(
                 f'<div class="panel">'
