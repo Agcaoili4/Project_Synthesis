@@ -1,0 +1,14 @@
+[project]
+name = "project-synthesis"
+version = "0.0.1"
+description = "Locally-run, voice-driven AI assistant inspired by JARVIS / FRIDAY."
+requires-python = ">=3.12,<3.13"
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+addopts = "-ra --strict-markers"
+markers = [
+    "integration: integration tests (load real models, slow)",
+]

@@ -1,0 +1,30 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# --- Virtualenvs ---
+.venv/
+venv/
+env/
+
+# --- Env / secrets ---
+.env
+.env.local
+
+# --- Models (downloaded weights — never commit) ---
+models/
+
+# --- macOS ---
+.DS_Store
+
+# --- IDE ---
+.vscode/
+.idea/
+
+# --- Logs / runtime ---
+*.log
+logs/

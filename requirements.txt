@@ -1,0 +1,38 @@
+# --- Brain (FastAPI) ---
+fastapi==0.115.5
+uvicorn[standard]==0.32.1
+pydantic==2.10.3
+pydantic-settings==2.6.1
+httpx==0.28.1
+jinja2==3.1.4
+
+# --- LLM client ---
+ollama==0.5.4
+
+# --- STT ---
+faster-whisper==1.1.0
+
+# --- TTS ---
+# Piper TTS uses the standalone binary (downloaded into models/piper/bin/),
+# invoked via subprocess from infrastructure/tts/piper_engine.py. No pypi pkg
+# because piper-phonemize lacks Apple Silicon wheels.
+
+
+# --- Wake word + VAD ---
+openwakeword==0.6.0
+onnxruntime==1.20.1
+silero-vad==5.1.2
+
+# --- Audio I/O ---
+sounddevice==0.5.1
+numpy==1.26.4
+soundfile==0.12.1
+
+# --- Utilities ---
+loguru==0.7.3
+python-dotenv==1.0.1
+
+# --- Tests ---
+pytest==8.3.4
+pytest-asyncio==0.25.0
+pytest-httpx==0.35.0
