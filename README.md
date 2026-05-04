@@ -43,16 +43,16 @@ They communicate over local HTTP. No cloud. No telemetry. Your audio never leave
 
 ## Stack
 
-| Concern                  | Choice                                                   |
-| ------------------------ | -------------------------------------------------------- |
-| Wake word                | openWakeWord (`hey_synthesis`)                           |
-| Voice activity detection | Silero VAD                                               |
-| Speech-to-text           | faster-whisper (`small.en`)                              |
-| LLM                      | Qwen 2.5 7B Instruct via Ollama                          |
+| Concern                  | Choice                                                                            |
+| ------------------------ | --------------------------------------------------------------------------------- |
+| Wake word                | openWakeWord (`hey_synthesis`)                                                    |
+| Voice activity detection | Silero VAD                                                                        |
+| Speech-to-text           | faster-whisper (`small.en`)                                                       |
+| LLM                      | Qwen 2.5 7B Instruct via Ollama                                                   |
 | Text-to-speech           | macOS `say` (`Moira` — Irish female, FRIDAY-adjacent). Piper/MLX upgrade in v0.5. |
-| Audio I/O                | sounddevice                                              |
-| Backend                  | FastAPI                                                  |
-| Dashboard                | Server-rendered HTML + HTMX                              |
+| Audio I/O                | sounddevice                                                                       |
+| Backend                  | FastAPI                                                                           |
+| Dashboard                | Server-rendered HTML + HTMX                                                       |
 
 Disk footprint: ~6 GB of models. Peak RAM: ~7 GB. Targets 16 GB Apple Silicon comfortably.
 

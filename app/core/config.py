@@ -19,11 +19,12 @@ class Settings(BaseSettings):
     ollama_url: str = "http://127.0.0.1:11434"
     ollama_model: str = "qwen2.5:7b-instruct-q4_K_M"
     llm_max_history: int = 20
+    # The system prompt to make sure that the model always knows its identity and what it needed to do.
     system_prompt: str = (
         "You are Synthesis, a concise, intelligent personal AI assistant "
-        "modeled after JARVIS / FRIDAY. Reply in 1-3 sentences unless the "
-        "user asks for more detail. Speak naturally — your reply will be "
-        "spoken aloud."
+        "Use short, natural spoken sentences. Avoid lists unless asked. "
+        "Use contractions and conversational phrasing. Reply like you are speaking aloud."
+
     )
 
     whisper_model: str = "small.en"

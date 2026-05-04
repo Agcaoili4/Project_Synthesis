@@ -15,6 +15,11 @@ class FakeLLM:
         return self.reply
 
 
+class FailingLLM:
+    async def chat(self, messages: list[dict[str, str]]) -> str:
+        raise RuntimeError("backend down")
+
+
 @pytest.fixture
 def fake_llm() -> FakeLLM:
     return FakeLLM(reply="Paris")
@@ -38,6 +43,24 @@ def test_post_converse_returns_reply(client: TestClient, fake_llm: FakeLLM):
     )
     assert response.status_code == 200
     assert response.json() == {"reply": "Paris", "session_id": "s1"}
+
+
+def test_post_converse_returns_503_when_llm_is_unavailable():
+    app = build_app(llm=FailingLLM(), store=InMemoryConversationStore())
+    client = TestClient(app)
+
+    response = client.post(
+        "/converse",
+        json={"transcript": "capital of France?", "session_id": "s1"},
+    )
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "detail": (
+            "LLM backend unavailable. Check that Ollama is running "
+            "and the configured model is installed."
+        )
+    }
 
 
 def test_post_converse_persists_history_across_calls(
