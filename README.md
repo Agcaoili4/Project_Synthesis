@@ -118,6 +118,23 @@ python -m app.daemon
 # Inspect the live transcript at http://localhost:8000
 ```
 
+## Security Notes
+
+By default, the brain accepts requests only from loopback clients such as
+`127.0.0.1`, `::1`, or `localhost`. If you intentionally expose it beyond your
+machine, set `BRAIN_API_TOKEN` and send it as a bearer token:
+
+```bash
+curl -H "Authorization: Bearer $BRAIN_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"transcript":"hello","session_id":"manual-test"}' \
+  http://127.0.0.1:8000/converse
+```
+
+Conversation text is not written to daemon logs unless
+`LOG_CONVERSATION_TEXT=true` is set. Keep that off for normal use; transcripts
+can contain sensitive personal audio and assistant replies.
+
 ## Roadmap
 
 - **v0** — Local voice loop _(in progress)_

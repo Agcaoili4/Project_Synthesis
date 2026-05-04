@@ -13,6 +13,8 @@ class Settings(BaseSettings):
 
     brain_host: str = "127.0.0.1"
     brain_port: int = 8000
+    brain_api_token: str | None = None
+    log_conversation_text: bool = False
 
     ollama_url: str = "http://127.0.0.1:11434"
     ollama_model: str = "qwen2.5:7b-instruct-q4_K_M"

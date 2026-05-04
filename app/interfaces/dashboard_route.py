@@ -1,14 +1,15 @@
 from fastapi import APIRouter
 from fastapi.responses import HTMLResponse
+from html import escape
 
 from app.application.converse import InMemoryConversationStore
+from app.domain.conversation import Role
 
 _PAGE = """<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <title>Project Synthesis — Dashboard</title>
-  <script src="https://unpkg.com/htmx.org@2.0.4"></script>
   <style>
     :root {
       --bg: #0b0d10; --panel: #14181d; --fg: #e6edf3; --muted: #7d8590;
@@ -31,11 +32,18 @@ _PAGE = """<!doctype html>
   <h1>Project Synthesis</h1>
   <div class="sub">Live transcript · auto-refreshing every 2s</div>
   <div id="transcripts"
-       hx-get="/dashboard/transcripts"
-       hx-trigger="load, every 2s"
-       hx-swap="innerHTML">
+       data-source="/dashboard/transcripts">
     <div class="empty">Loading…</div>
   </div>
+  <script>
+    async function refreshTranscripts() {
+      const target = document.getElementById("transcripts");
+      const response = await fetch(target.dataset.source, { credentials: "same-origin" });
+      if (response.ok) target.innerHTML = await response.text();
+    }
+    refreshTranscripts();
+    setInterval(refreshTranscripts, 2000);
+  </script>
 </body>
 </html>
 """
@@ -60,13 +68,14 @@ def build_router(store: InMemoryConversationStore) -> APIRouter:
             conv = store.get_or_create(sid)
             msgs_html = "".join(
                 f'<div class="msg {m.role.value}">'
-                f'<div class="role">{m.role.value}</div>{_escape(m.content)}'
+                f'<div class="role">{_escape(m.role.value)}</div>{_escape(m.content)}'
                 f"</div>"
                 for m in conv.messages
+                if m.role is not Role.SYSTEM
             )
             parts.append(
                 f'<div class="panel">'
-                f'<div class="session">session · {sid}</div>{msgs_html}</div>'
+                f'<div class="session">session · {_escape(sid)}</div>{msgs_html}</div>'
             )
         return HTMLResponse("".join(parts))
 
@@ -74,8 +83,4 @@ def build_router(store: InMemoryConversationStore) -> APIRouter:
 
 
 def _escape(s: str) -> str:
-    return (
-        s.replace("&", "&amp;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-    )
+    return escape(s, quote=True)

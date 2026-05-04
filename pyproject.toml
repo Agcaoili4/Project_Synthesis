@@ -3,11 +3,37 @@ name = "project-synthesis"
 version = "0.0.1"
 description = "Locally-run, voice-driven AI assistant inspired by JARVIS / FRIDAY."
 requires-python = ">=3.12,<3.13"
+dependencies = [
+    "fastapi==0.115.5",
+    "uvicorn[standard]==0.32.1",
+    "pydantic==2.10.3",
+    "pydantic-settings==2.6.1",
+    "httpx==0.28.1",
+    "jinja2==3.1.4",
+    "ollama==0.5.4",
+    "faster-whisper==1.1.0",
+    "openwakeword==0.6.0",
+    "onnxruntime==1.20.1",
+    "silero-vad==5.1.2",
+    "sounddevice==0.5.1",
+    "numpy==1.26.4",
+    "soundfile==0.12.1",
+    "loguru==0.7.3",
+    "python-dotenv==1.0.1",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest==8.3.4",
+    "pytest-asyncio==0.25.0",
+    "pytest-httpx==0.35.0",
+]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
 addopts = "-ra --strict-markers"
 markers = [
     "integration: integration tests (load real models, slow)",

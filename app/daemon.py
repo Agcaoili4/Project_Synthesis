@@ -68,6 +68,11 @@ async def run_loop() -> None:
     utterance_started_at = 0.0
 
     async with httpx.AsyncClient(timeout=120.0) as http, MicStream() as mic:
+        headers = (
+            {"Authorization": f"Bearer {s.brain_api_token}"}
+            if s.brain_api_token
+            else None
+        )
         async for chunk in mic:
             if state is State.IDLE:
                 pre_roll.append(chunk)
@@ -89,7 +94,10 @@ async def run_loop() -> None:
                     log.info("captured %.2fs of audio. transcribing...", len(audio) / 16000)
 
                     transcript = await stt.transcribe(audio)
-                    log.info("you: %s", transcript)
+                    if s.log_conversation_text:
+                        log.info("you: %s", transcript)
+                    else:
+                        log.info("transcribed %d chars.", len(transcript))
 
                     if not transcript.strip():
                         log.info("empty transcript — back to idle.")
@@ -102,6 +110,7 @@ async def run_loop() -> None:
                         resp = await http.post(
                             brain_url,
                             json={"transcript": transcript, "session_id": session_id},
+                            headers=headers,
                         )
                         resp.raise_for_status()
                         reply = resp.json()["reply"]
@@ -109,7 +118,10 @@ async def run_loop() -> None:
                         log.error("brain error: %s", e)
                         reply = "I had trouble reaching the brain. Please check that uvicorn is running."
 
-                    log.info("synthesis: %s", reply)
+                    if s.log_conversation_text:
+                        log.info("synthesis: %s", reply)
+                    else:
+                        log.info("received reply with %d chars.", len(reply))
                     state = State.SPEAKING
                     await tts.speak(reply)
 
