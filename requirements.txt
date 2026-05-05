@@ -13,9 +13,10 @@ ollama==0.5.4
 faster-whisper==1.1.0
 
 # --- TTS ---
-# Piper TTS uses the standalone binary (downloaded into models/piper/bin/),
-# invoked via subprocess from infrastructure/tts/piper_engine.py. No pypi pkg
-# because piper-phonemize lacks Apple Silicon wheels.
+# MLX-Audio Kokoro is the primary voice path on Apple Silicon:
+#   uv pip install --python .venv/bin/python -e ".[kokoro]"
+# macOS `say` remains the zero-install fallback.
+# Kokoro's English text processing comes from misaki[en].
 
 
 # --- Wake word + VAD ---
@@ -24,7 +25,7 @@ onnxruntime==1.20.1
 silero-vad==5.1.2
 
 # --- Audio I/O ---
-sounddevice==0.5.1
+sounddevice==0.5.3
 numpy==1.26.4
 soundfile==0.12.1
 

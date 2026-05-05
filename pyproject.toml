@@ -1,7 +1,7 @@
 [project]
 name = "project-synthesis"
 version = "0.0.1"
-description = "Locally-run, voice-driven AI assistant inspired by JARVIS / FRIDAY."
+description = "Locally-run, voice-driven AI assistant"
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "fastapi==0.115.5",
@@ -15,7 +15,7 @@ dependencies = [
     "openwakeword==0.6.0",
     "onnxruntime==1.20.1",
     "silero-vad==5.1.2",
-    "sounddevice==0.5.1",
+    "sounddevice==0.5.3",
     "numpy==1.26.4",
     "soundfile==0.12.1",
     "loguru==0.7.3",
@@ -23,6 +23,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+kokoro = [
+    "mlx-audio==0.4.3",
+    "misaki[en]==0.9.4",
+]
 test = [
     "pytest==8.3.4",
     "pytest-asyncio==0.25.0",

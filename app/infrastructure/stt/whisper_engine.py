@@ -1,6 +1,7 @@
 """STT adapter wrapping faster-whisper (CTranslate2 build of OpenAI Whisper).
 
-Loads the model lazily on first transcribe() call so import is cheap.
+Loads the model lazily by default, with an explicit warm-up hook for the
+daemon so the first voice turn does not pay the model-load cost.
 """
 
 import asyncio
@@ -13,7 +14,7 @@ from faster_whisper import WhisperModel
 class WhisperSTTEngine:
     def __init__(
         self,
-        model_name: str = "small.en",
+        model_name: str = "base.en",
         device: str = "cpu",
         compute_type: str = "int8",
     ) -> None:
@@ -31,6 +32,10 @@ class WhisperSTTEngine:
             )
         return self._model
 
+    async def warm_up(self) -> None:
+        """Load the model before the first user turn."""
+        await asyncio.to_thread(self._ensure_loaded)
+
     async def transcribe(self, audio: np.ndarray) -> str:
         """Transcribe a float32 mono PCM array sampled at 16 kHz."""
         return await asyncio.to_thread(self._transcribe_sync, audio)
@@ -40,5 +45,11 @@ class WhisperSTTEngine:
 
     def _transcribe_sync(self, audio: np.ndarray | str) -> str:
         model = self._ensure_loaded()
-        segments, _info = model.transcribe(audio, beam_size=1, vad_filter=False)
+        segments, _info = model.transcribe(
+            audio,
+            beam_size=1,
+            vad_filter=False,
+            condition_on_previous_text=False,
+            without_timestamps=True,
+        )
         return " ".join(seg.text.strip() for seg in segments).strip()

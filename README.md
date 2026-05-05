@@ -34,7 +34,7 @@ They communicate over local HTTP. No cloud. No telemetry. Your audio never leave
   │           ▼ transcript       │         │       ▼                      │
   │       call BRAIN ────────────┼────────►│   return reply               │
   │           ▼ reply text       │ ◄────── │                              │
-  │       say -v Moira ──► speakers│       │  GET  /  (HTMX dashboard)    │
+  │       local TTS ─────► speakers│       │  GET  /  (HTMX dashboard)    │
   └──────────────────────────────┘         └──────────────────────────────┘
                                                     ▲
                                                     │ http://localhost:8000
@@ -43,16 +43,16 @@ They communicate over local HTTP. No cloud. No telemetry. Your audio never leave
 
 ## Stack
 
-| Concern                  | Choice                                                                            |
-| ------------------------ | --------------------------------------------------------------------------------- |
-| Wake word                | openWakeWord (`hey_synthesis`)                                                    |
-| Voice activity detection | Silero VAD                                                                        |
-| Speech-to-text           | faster-whisper (`small.en`)                                                       |
-| LLM                      | Qwen 2.5 7B Instruct via Ollama                                                   |
-| Text-to-speech           | macOS `say` (`Moira` — Irish female, FRIDAY-adjacent). Piper/MLX upgrade in v0.5. |
-| Audio I/O                | sounddevice                                                                       |
-| Backend                  | FastAPI                                                                           |
-| Dashboard                | Server-rendered HTML + HTMX                                                       |
+| Concern                  | Choice                                                                                                                               |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------ |
+| Wake word                | openWakeWord. Default `hey_jarvis` (pretrained); custom `hey_synthesis` per [docs/wake_word_training.md](docs/wake_word_training.md) |
+| Voice activity detection | Silero VAD                                                                                                                           |
+| Speech-to-text           | faster-whisper (`base.en` by default; `small.en` for higher accuracy)                                                                |
+| LLM                      | Qwen 2.5 7B Instruct via Ollama                                                                                                      |
+| Text-to-speech           | MLX-Audio Kokoro by default (`TTS_ENGINE=kokoro`) with macOS `say` fallback.                                                          |
+| Audio I/O                | sounddevice                                                                                                                          |
+| Backend                  | FastAPI                                                                                                                              |
+| Dashboard                | Server-rendered HTML + HTMX                                                                                                          |
 
 Disk footprint: ~6 GB of models. Peak RAM: ~7 GB. Targets 16 GB Apple Silicon comfortably.
 
@@ -78,7 +78,8 @@ project-synthesis/
 │   ├── infrastructure/               # Adapters to the outside world.
 │   │   ├── llm/ollama_client.py      # talks to Ollama
 │   │   ├── stt/whisper_engine.py     # wraps faster-whisper
-│   │   ├── tts/say_engine.py         # wraps macOS `say` (Moira voice)
+│   │   ├── tts/mlx_kokoro_engine.py  # wraps MLX-Audio Kokoro local TTS
+│   │   ├── tts/say_engine.py         # wraps macOS `say` fallback
 │   │   ├── wake/openww_detector.py   # wraps openWakeWord
 │   │   ├── vad/silero_vad.py         # silence detection
 │   │   └── audio/io.py               # sounddevice mic + speaker
@@ -116,8 +117,8 @@ running before the daemon can talk and speak.
 # Create the virtualenv if it does not already exist
 uv venv --python 3.12
 
-# Install runtime + test dependencies
-uv pip install --python .venv/bin/python -e ".[test]"
+# Install runtime + test dependencies, including local MLX-Audio Kokoro TTS
+uv pip install --python .venv/bin/python -e ".[test,kokoro]"
 ```
 
 ### 2. Start Ollama
@@ -162,9 +163,44 @@ Terminal 2:
 ```
 
 Then say the wake word and start talking. The daemon handles microphone input,
-speech-to-text, the brain request, and macOS `say` text-to-speech output.
+speech-to-text, the brain request, and local text-to-speech output.
 
-### 5. Run tests
+For lower latency, the daemon warms the Whisper model at startup and logs per-turn
+timings for capture, STT, brain, and TTS. Tune `WHISPER_MODEL`,
+`VAD_SILENCE_MS`, and `NO_SPEECH_TIMEOUT_S` in `.env` if you want to trade
+speed against accuracy or cutoff tolerance.
+
+Kokoro is the default voice engine. To configure it explicitly, set:
+
+```bash
+TTS_ENGINE=kokoro
+KOKORO_MODEL=mlx-community/Kokoro-82M-bf16
+KOKORO_VOICE=af_heart
+```
+
+Kokoro runs locally through MLX-Audio and plays through `sounddevice`. If
+MLX-Audio is missing or synthesis fails, the daemon logs the issue and falls
+back to macOS `say` for that reply.
+
+### 5. (Optional) Train a custom "Hey Synthesis" wake word
+
+Out of the box the daemon listens for **"Hey Jarvis"** because that's the only
+on-brand phrase openWakeWord ships pretrained. To make it respond to literally
+"Hey Synthesis," train an openWakeWord `.onnx` model — see
+[docs/wake_word_training.md](docs/wake_word_training.md). After training:
+
+```bash
+.venv/bin/python scripts/install_custom_wake_word.py ~/Downloads/hey_synthesis.onnx --update-env
+```
+
+The script validates the file with openWakeWord, copies it to
+`models/wake/hey_synthesis.onnx`, and sets
+`WAKE_MODEL=models/wake/hey_synthesis.onnx` in your `.env`.
+`WAKE_MODEL` accepts either a
+pretrained name or a path; the daemon validates and surfaces helpful errors
+for either.
+
+### 6. Run tests
 
 ```bash
 .venv/bin/python -m pytest tests/unit
@@ -190,8 +226,8 @@ can contain sensitive personal audio and assistant replies.
 ## Roadmap
 
 - **v0** — Local voice loop _(in progress)_
-- **v0.5** — Upgrade TTS to Piper or MLX-Audio Kokoro, streaming output, persistent memory (SQLite), Docker compose
-- **v1** — Tool use (calendar, email, web search), custom `hey_synthesis` wake word
+- **v0.5** — Streaming TTS, interruption / barge-in, persistent memory (SQLite), Docker compose
+- **v1** — Tool use (calendar, email, web search); ship a pretrained `hey_synthesis.onnx` in the repo
 - **v1.5** — Personality layer / system-prompt persona
 - **v2** — Computer control (open apps, run scripts), vision input
 - **v2.5** — Native macOS menu-bar surface

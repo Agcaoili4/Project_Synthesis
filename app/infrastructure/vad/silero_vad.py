@@ -13,12 +13,16 @@ SAMPLE_RATE = 16000
 
 
 class SileroVADGate:
-    def __init__(self, silence_ms: int = 900, speech_threshold: float = 0.5) -> None:
+    def __init__(self, silence_ms: int = 600, speech_threshold: float = 0.5) -> None:
         self._model = load_silero_vad(onnx=False)
         self._silence_ms = silence_ms
         self._threshold = speech_threshold
         self._silence_run_ms = 0
         self._heard_speech = False
+
+    @property
+    def heard_speech(self) -> bool:
+        return self._heard_speech
 
     def reset(self) -> None:
         self._silence_run_ms = 0
