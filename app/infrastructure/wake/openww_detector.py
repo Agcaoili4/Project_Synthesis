@@ -19,7 +19,7 @@ PRETRAINED_WAKEWORDS: frozenset[str] = frozenset(
     {"alexa", "hey_mycroft", "hey_jarvis", "hey_rhasspy"}
 )
 
-DEFAULT_COOLDOWN_CHUNKS = 25  # ~2 seconds @ 80 ms chunks; suppresses double-fire
+DEFAULT_COOLDOWN_CHUNKS = 25  # about 2 seconds at 80 ms per chunk
 
 _VERSION_SUFFIX = re.compile(r"_v\d+(?:\.\d+)*$")
 
@@ -132,8 +132,7 @@ class OpenWakeWordDetector:
             raise RuntimeError(
                 f"openWakeWord loaded no models from {wakeword!r}"
             )
-        # Prefer the hint if it matches; otherwise fall back to whatever was
-        # loaded (handles openWakeWord rewriting keys for pretrained variants).
+        # Pretrained models may load under versioned keys such as hey_jarvis_v0.1.
         self._score_key = (
             lookup_hint if lookup_hint in loaded_keys else loaded_keys[0]
         )
@@ -147,7 +146,7 @@ class OpenWakeWordDetector:
         return self._score_key
 
     def feed(self, chunk: np.ndarray) -> bool:
-        """Return True if the wake phrase was just detected."""
+        """Return True when this chunk detects the wake phrase."""
         # openWakeWord wants int16 PCM, sounddevice gives us float32 in [-1, 1].
         int16_chunk = (chunk * 32767).clip(-32768, 32767).astype(np.int16)
         scores = self._model.predict(int16_chunk)

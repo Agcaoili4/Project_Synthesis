@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     ollama_model: str = "qwen2.5:7b-instruct-q4_K_M"
     llm_max_history: int = 20
     
-    # The system prompt to make sure that the model always knows its identity and what it needed to do.
+    # Default persona used when no caller supplies a custom system prompt.
     system_prompt: str = (
         "You are Synthesis, a concise, intelligent personal AI assistant "
         "Use short, natural spoken sentences. Avoid lists unless asked. "
@@ -28,10 +28,6 @@ class Settings(BaseSettings):
         "Use contractions and conversational phrasing. Reply like you are speaking aloud and friendly." 
         "Be polite and understanding, but don't be afraid to ask for clarification if the user's request is ambiguous."
     )
-    
-    # Prompt when synthesis is provoked
-    
-
     whisper_model: str = "base.en"
     whisper_device: str = "cpu"
     whisper_compute_type: str = "int8"
@@ -45,17 +41,32 @@ class Settings(BaseSettings):
     kokoro_lang_code: str = "a"
     kokoro_sample_rate: int = 24000
 
-    # Wake word
+    # Wake detector backend:
+    #   "openwakeword" — fast, low-CPU, but needs a trained .onnx file.
+    #   "whisper"      — streaming-Whisper transcription; no training needed.
+    wake_engine: str = "openwakeword"
     wake_model: str = "hey_jarvis"
     wake_threshold: float = 0.5
     wake_chime_enabled: bool = False
     wake_pre_roll_ms: int = 160
+
+    # Whisper-wake-only settings (ignored when wake_engine="openwakeword").
+    wake_phrase: str = "hey synthesis"
+    wake_whisper_model: str = "tiny.en"
+    wake_whisper_window_ms: int = 1200
+    wake_whisper_poll_ms: int = 350
 
     vad_silence_ms: int = 600
     no_speech_timeout_s: float = 4.0
     sample_rate: int = 16000
     input_device: str | None = None
     output_device: str | None = None
+
+    # Local event stream consumed by the pygame visualizer.
+    visualizer_bus_enabled: bool = True
+    visualizer_bus_host: str = "127.0.0.1"
+    visualizer_bus_port: int = 8765
+    visualizer_auto_start: bool = True
 
 
 @lru_cache

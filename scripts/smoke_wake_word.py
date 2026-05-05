@@ -19,7 +19,7 @@ from app.infrastructure.audio.io import (
     probe_mic_health,
     resolve_audio_device,
 )
-from app.infrastructure.wake.openww_detector import OpenWakeWordDetector
+from app.infrastructure.wake import build_wake_detector
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -45,12 +45,8 @@ async def main() -> None:
         mic_health.peak,
     )
 
-    log.info("loading wake word model '%s'...", s.wake_model)
-    wake = OpenWakeWordDetector(
-        wakeword=s.wake_model,
-        threshold=s.wake_threshold,
-        project_root=PROJECT_ROOT,
-    )
+    log.info("loading wake detector (engine=%s)...", s.wake_engine)
+    wake = build_wake_detector(s, project_root=PROJECT_ROOT)
     log.info("listening for '%s' (Ctrl-C to exit).", wake.score_key)
 
     async with MicStream(device=input_device) as mic:

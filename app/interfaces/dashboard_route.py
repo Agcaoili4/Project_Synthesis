@@ -1,14 +1,19 @@
 import asyncio
 from html import escape
 from inspect import isawaitable
+from pathlib import Path
 from typing import Callable, Protocol
 
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from pydantic import BaseModel, Field
 
 from app.application.converse import InMemoryConversationStore
 from app.domain.conversation import Role
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+LOGO_PATH = PROJECT_ROOT / "assets" / "Synthesis.png"
 
 
 class DashboardTTSEngine(Protocol):
@@ -19,19 +24,12 @@ class DashboardTTSRequest(BaseModel):
     text: str = Field(min_length=1, max_length=1200)
 
 
-_ICON = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="Synthesis">
-  <rect width="256" height="256" rx="48" fill="#0d1117"/>
-  <rect x="38" y="38" width="180" height="180" rx="32" fill="#101f28" stroke="#3f8fb5" stroke-width="8"/>
-  <path d="M84 144c12 18 30 27 54 27 24 0 38-10 38-27 0-20-17-26-44-32-25-6-43-16-43-41 0-27 22-44 55-44 22 0 40 6 54 19l-18 26c-11-9-24-14-38-14-16 0-25 6-25 16 0 13 14 18 36 23 31 8 52 19 52 48 0 31-24 51-66 51-35 0-59-13-74-38z" fill="#dff5ff"/>
-</svg>
-"""
-
 _PAGE = """<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#0d1117">
+  <meta name="theme-color" content="#120d1a">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Synthesis">
   <link rel="manifest" href="/manifest.webmanifest">
@@ -39,17 +37,17 @@ _PAGE = """<!doctype html>
   <style>
     :root {
       color-scheme: dark;
-      --bg: #0d1117;
-      --surface: #111820;
-      --surface-2: #151f2a;
-      --line: #263241;
-      --fg: #edf2f7;
-      --muted: #91a0ad;
-      --quiet: #627181;
-      --accent: #59c2ff;
-      --green: #42d392;
-      --amber: #f4b860;
-      --danger: #ff7575;
+      --bg: #120d1a;
+      --surface: #1b1426;
+      --surface-2: #241a33;
+      --line: #3b2b54;
+      --fg: #f6eef8;
+      --muted: #b9a8c9;
+      --quiet: #8e7aa4;
+      --accent: #f2a65f;
+      --violet: #8f68df;
+      --blue: #75a7ff;
+      --danger: #ff7d8b;
     }
     * { box-sizing: border-box; }
     html, body { min-height: 100%; }
@@ -70,7 +68,7 @@ _PAGE = """<!doctype html>
     }
     .rail {
       border-right: 1px solid var(--line);
-      background: #0f151c;
+      background: #130f1d;
       padding: 20px;
       display: flex;
       flex-direction: column;
@@ -82,16 +80,14 @@ _PAGE = """<!doctype html>
       gap: 12px;
       min-height: 44px;
     }
-    .mark {
-      width: 36px;
-      height: 36px;
-      border: 1px solid #3b6f88;
+    .brand-logo {
+      width: 44px;
+      height: 44px;
       border-radius: 8px;
-      display: grid;
-      place-items: center;
-      color: var(--accent);
-      font-weight: 700;
-      background: #101f28;
+      object-fit: cover;
+      border: 1px solid #7d5aa8;
+      background: #120d1a;
+      box-shadow: 0 0 26px rgba(143, 104, 223, .24);
     }
     h1 {
       margin: 0;
@@ -130,7 +126,7 @@ _PAGE = """<!doctype html>
       width: 8px;
       height: 8px;
       border-radius: 999px;
-      background: var(--green);
+      background: var(--accent);
       display: inline-block;
       margin-right: 7px;
     }
@@ -152,8 +148,8 @@ _PAGE = """<!doctype html>
     }
     .session-button:hover,
     .session-button.active {
-      border-color: #3f8fb5;
-      background: #132330;
+      border-color: #8f68df;
+      background: #211636;
     }
     .main {
       min-width: 0;
@@ -169,7 +165,7 @@ _PAGE = """<!doctype html>
       justify-content: space-between;
       padding: 14px 22px;
       gap: 16px;
-      background: #0d1117;
+      background: #120d1a;
     }
     .topbar h2 {
       margin: 0;
@@ -202,9 +198,9 @@ _PAGE = """<!doctype html>
       padding: 0 12px;
     }
     .send-button {
-      border-color: #3f8fb5;
-      background: #123045;
-      color: #dff5ff;
+      border-color: #b77ade;
+      background: #322047;
+      color: #fff2d8;
       min-width: 84px;
     }
     .icon-button:hover, .send-button:hover {
@@ -244,12 +240,12 @@ _PAGE = """<!doctype html>
       overflow-wrap: anywhere;
     }
     .msg.user {
-      border-color: rgba(66, 211, 146, .35);
-      background: rgba(66, 211, 146, .08);
+      border-color: rgba(242, 166, 95, .38);
+      background: rgba(242, 166, 95, .09);
     }
     .msg.assistant {
-      border-color: rgba(89, 194, 255, .35);
-      background: rgba(89, 194, 255, .08);
+      border-color: rgba(143, 104, 223, .42);
+      background: rgba(143, 104, 223, .10);
     }
     .msg.system {
       border-color: rgba(145, 160, 173, .25);
@@ -274,7 +270,7 @@ _PAGE = """<!doctype html>
     }
     .composer {
       border-top: 1px solid var(--line);
-      background: #0d1117;
+      background: #120d1a;
       padding: 14px 22px 18px;
       display: grid;
       gap: 12px;
@@ -282,7 +278,7 @@ _PAGE = """<!doctype html>
     .voice-panel {
       border: 1px solid var(--line);
       border-radius: 8px;
-      background: var(--surface);
+      background: #191223;
       padding: 12px;
       display: grid;
       gap: 12px;
@@ -301,7 +297,7 @@ _PAGE = """<!doctype html>
       height: 58px;
       border: 1px solid var(--line);
       border-radius: 8px;
-      background: #0b131a;
+      background: #110b18;
       display: flex;
       align-items: center;
       justify-content: center;
@@ -313,7 +309,7 @@ _PAGE = """<!doctype html>
       width: 5px;
       height: 10px;
       border-radius: 999px;
-      background: var(--accent);
+      background: var(--violet);
       opacity: .35;
       transform-origin: center;
       transition: height .18s ease, opacity .18s ease;
@@ -321,6 +317,7 @@ _PAGE = """<!doctype html>
     .wave.speaking .bar {
       opacity: .92;
       animation: speakWave 940ms ease-in-out infinite;
+      background: var(--accent);
     }
     .wave.speaking .bar:nth-child(2n) { animation-duration: 780ms; }
     .wave.speaking .bar:nth-child(3n) { animation-duration: 1120ms; }
@@ -390,7 +387,7 @@ _PAGE = """<!doctype html>
   <div class="app">
     <aside class="rail">
       <div class="brand">
-        <div class="mark">S</div>
+        <img class="brand-logo" src="/assets/synthesis.png" alt="Synthesis logo">
         <div>
           <h1>Synthesis</h1>
           <div class="caption">Local voice assistant</div>
@@ -608,24 +605,24 @@ def build_router(
                 "start_url": "/",
                 "scope": "/",
                 "display": "standalone",
-                "background_color": "#0d1117",
-                "theme_color": "#0d1117",
+                "background_color": "#120d1a",
+                "theme_color": "#120d1a",
                 "description": "A fully local voice assistant console.",
                 "icons": [
                     {
-                        "src": "/synthesis-icon.svg",
-                        "sizes": "any",
-                        "type": "image/svg+xml",
-                        "purpose": "any maskable",
+                        "src": "/assets/synthesis.png",
+                        "sizes": "1043x893",
+                        "type": "image/png",
+                        "purpose": "any",
                     }
                 ],
             },
             media_type="application/manifest+json",
         )
 
-    @router.get("/synthesis-icon.svg")
-    def icon() -> HTMLResponse:
-        return HTMLResponse(_ICON, media_type="image/svg+xml")
+    @router.get("/assets/synthesis.png")
+    def logo() -> FileResponse:
+        return FileResponse(LOGO_PATH, media_type="image/png")
 
     @router.post("/dashboard/tts")
     async def tts_preview(req: DashboardTTSRequest) -> JSONResponse:

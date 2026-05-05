@@ -29,7 +29,7 @@ class SileroVADGate:
         self._heard_speech = False
 
     def feed(self, chunk: np.ndarray, chunk_ms: int = 80) -> bool:
-        """Return True while we should keep recording, False once user has stopped."""
+        """Return True while recording should continue."""
         # Silero expects 512-sample windows at 16 kHz. Pad/truncate as needed.
         win = self._to_silero_window(chunk)
         with torch.no_grad():
@@ -41,7 +41,7 @@ class SileroVADGate:
         if self._heard_speech:
             self._silence_run_ms += chunk_ms
             return self._silence_run_ms < self._silence_ms
-        # Pre-speech silence: keep going (don't time out before the user starts).
+        # Silence before the first word is handled by the daemon's wake timeout.
         return True
 
     @staticmethod

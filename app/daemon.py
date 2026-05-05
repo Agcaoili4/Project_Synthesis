@@ -14,7 +14,11 @@ The brain (uvicorn app.main:app) must be running too.
 """
 
 import asyncio
+import contextlib
 import logging
+import os
+import subprocess
+import sys
 import time
 import uuid
 from collections import deque
@@ -27,16 +31,18 @@ import numpy as np
 from app.core.config import get_settings
 from app.infrastructure.audio.io import (
     CHUNK_MS,
+    SAMPLE_RATE as MIC_SAMPLE_RATE,
     MicStream,
     explain_unhealthy_mic,
     play_chime,
     probe_mic_health,
     resolve_audio_device,
 )
+from app.infrastructure.events import VisualizerEventBus, compute_audio_levels
 from app.infrastructure.stt.whisper_engine import WhisperSTTEngine
 from app.infrastructure.tts.factory import build_tts_engine
 from app.infrastructure.vad.silero_vad import SileroVADGate
-from app.infrastructure.wake.openww_detector import OpenWakeWordDetector
+from app.infrastructure.wake import build_wake_detector
 
 
 log = logging.getLogger("synthesis.daemon")
@@ -52,6 +58,66 @@ class State(Enum):
 
 
 MAX_UTTERANCE_S = 15
+VISUALIZER_SCRIPT = PROJECT_ROOT / "scripts" / "synthesis_visualizer.py"
+
+
+def build_visualizer_command(settings) -> list[str]:
+    """Build the pygame visualizer command used when the daemon owns the mic."""
+    return [
+        sys.executable,
+        str(VISUALIZER_SCRIPT),
+        "--no-mic",
+        "--bus-host",
+        settings.visualizer_bus_host,
+        "--bus-port",
+        str(settings.visualizer_bus_port),
+    ]
+
+
+async def start_visualizer_process(settings) -> subprocess.Popen | None:
+    """Launch the visualizer as a child process, if configured and possible."""
+    if not getattr(settings, "visualizer_auto_start", False):
+        return None
+    if not getattr(settings, "visualizer_bus_enabled", False):
+        log.info("visualizer autostart skipped because VISUALIZER_BUS_ENABLED=false.")
+        return None
+    if not VISUALIZER_SCRIPT.exists():
+        log.warning("visualizer autostart skipped; missing %s", VISUALIZER_SCRIPT)
+        return None
+
+    cmd = build_visualizer_command(settings)
+    env = os.environ.copy()
+    env.setdefault("PYGAME_HIDE_SUPPORT_PROMPT", "1")
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            cwd=str(PROJECT_ROOT),
+            env=env,
+            start_new_session=True,
+        )
+    except OSError as exc:
+        log.warning("visualizer autostart failed: %s", exc)
+        return None
+
+    await asyncio.sleep(0.25)
+    if proc.poll() is not None:
+        log.warning("visualizer exited immediately with code %s.", proc.returncode)
+        return None
+
+    log.info("visualizer started. pid=%s", proc.pid)
+    return proc
+
+
+def stop_visualizer_process(proc: subprocess.Popen | None) -> None:
+    """Terminate the autostarted visualizer without affecting manual windows."""
+    if proc is None or proc.poll() is not None:
+        return
+    proc.terminate()
+    try:
+        proc.wait(timeout=2.0)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait(timeout=2.0)
 
 
 async def run_loop() -> None:
@@ -72,11 +138,7 @@ async def run_loop() -> None:
 
     log.info("loading models...")
     model_load_started_at = time.monotonic()
-    wake = OpenWakeWordDetector(
-        wakeword=s.wake_model,
-        threshold=s.wake_threshold,
-        project_root=PROJECT_ROOT,
-    )
+    wake = build_wake_detector(s, project_root=PROJECT_ROOT)
     vad = SileroVADGate(silence_ms=s.vad_silence_ms)
     stt = WhisperSTTEngine(
         model_name=s.whisper_model,
@@ -103,10 +165,44 @@ async def run_loop() -> None:
     utterance_started_at = 0.0
     turn_started_at = 0.0
 
-    async with (
-        httpx.AsyncClient(timeout=120.0) as http,
-        MicStream(device=input_device) as mic,
-    ):
+    bus: VisualizerEventBus | None = None
+    if s.visualizer_bus_enabled:
+        bus = VisualizerEventBus(host=s.visualizer_bus_host, port=s.visualizer_bus_port)
+
+    def set_state(new: State) -> None:
+        # Keep daemon state and visualizer state in one place.
+        nonlocal state
+        state = new
+        if bus is not None:
+            bus.publish_state(new.name.lower())
+
+    # During playback the mic may be quiet or picking up the speakers. Kokoro
+    # can report its own PCM levels, which makes the visualizer follow the
+    # assistant voice directly. Engines without PCM access ignore this hook.
+    if bus is not None and hasattr(tts, "set_level_listener"):
+        def _on_tts_chunk(samples: np.ndarray, sample_rate: int) -> None:
+            levels = compute_audio_levels(samples, sample_rate)
+            bus.publish_levels(
+                levels["rms"], levels["low"], levels["mid"], levels["high"], source="tts",
+            )
+        tts.set_level_listener(_on_tts_chunk)
+
+    # Mic chunks arrive every 80 ms. Publishing every other chunk keeps the
+    # bus quiet while still giving the visualizer enough signal to animate.
+    mic_level_skip = 2
+    mic_level_counter = 0
+
+    async with contextlib.AsyncExitStack() as stack:
+        if bus is not None:
+            await stack.enter_async_context(bus)
+        visualizer_proc = await start_visualizer_process(s)
+        stack.callback(stop_visualizer_process, visualizer_proc)
+        # Publish after the bus starts so newly opened visualizers begin in a
+        # known state instead of waiting for the next user turn.
+        set_state(State.IDLE)
+
+        http = await stack.enter_async_context(httpx.AsyncClient(timeout=120.0))
+        mic = await stack.enter_async_context(MicStream(device=input_device))
         headers = (
             {"Authorization": f"Bearer {s.brain_api_token}"}
             if s.brain_api_token
@@ -120,28 +216,40 @@ async def run_loop() -> None:
                     wake.reset()
                     if s.wake_chime_enabled:
                         play_chime()
-                    state = State.LISTENING
+                    set_state(State.LISTENING)
                     vad.reset()
                     utterance = list(pre_roll)
                     utterance_started_at = time.monotonic()
                     turn_started_at = utterance_started_at
+                    mic_level_counter = 0
 
             elif state is State.LISTENING:
                 utterance.append(chunk)
                 still_speaking = vad.feed(chunk, chunk_ms=CHUNK_MS)
+                if bus is not None:
+                    mic_level_counter += 1
+                    if mic_level_counter % mic_level_skip == 0:
+                        levels = compute_audio_levels(chunk, MIC_SAMPLE_RATE)
+                        bus.publish_levels(
+                            levels["rms"],
+                            levels["low"],
+                            levels["mid"],
+                            levels["high"],
+                            source="mic",
+                        )
                 duration = time.monotonic() - utterance_started_at
                 if not vad.heard_speech and duration > s.no_speech_timeout_s:
                     log.info(
                         "no speech heard %.2fs after wake — back to idle.",
                         duration,
                     )
-                    state = State.IDLE
+                    set_state(State.IDLE)
                     wake.reset()
                     pre_roll.clear()
                     utterance = []
                     continue
                 if not still_speaking or duration > MAX_UTTERANCE_S:
-                    state = State.TRANSCRIBING
+                    set_state(State.TRANSCRIBING)
                     capture_finished_at = time.monotonic()
                     audio = np.concatenate(utterance)
                     captured_audio_s = len(audio) / 16000
@@ -162,13 +270,13 @@ async def run_loop() -> None:
                             stt_finished_at - stt_started_at,
                             time.monotonic() - turn_started_at,
                         )
-                        state = State.IDLE
+                        set_state(State.IDLE)
                         wake.reset()
                         pre_roll.clear()
                         utterance = []
                         continue
 
-                    state = State.THINKING
+                    set_state(State.THINKING)
                     brain_started_at = time.monotonic()
                     try:
                         resp = await http.post(
@@ -187,7 +295,7 @@ async def run_loop() -> None:
                         log.info("synthesis: %s", reply)
                     else:
                         log.info("received reply with %d chars.", len(reply))
-                    state = State.SPEAKING
+                    set_state(State.SPEAKING)
                     tts_started_at = time.monotonic()
                     await tts.speak(reply)
                     tts_finished_at = time.monotonic()
@@ -201,7 +309,7 @@ async def run_loop() -> None:
                         tts_finished_at - turn_started_at,
                     )
 
-                    state = State.IDLE
+                    set_state(State.IDLE)
                     wake.reset()
                     pre_roll.clear()
                     utterance = []

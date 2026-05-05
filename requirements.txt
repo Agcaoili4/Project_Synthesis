@@ -30,6 +30,9 @@ numpy==1.26.4
 scipy==1.17.1
 soundfile==0.12.1
 
+# --- Visualizer (Siri-style waveform UI) ---
+pygame==2.6.1
+
 # --- Utilities ---
 loguru==0.7.3
 python-dotenv==1.0.1

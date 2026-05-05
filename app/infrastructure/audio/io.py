@@ -13,11 +13,11 @@ import numpy as np
 import sounddevice as sd
 
 
-CHUNK_MS = 80           # 80 ms chunks → 1280 samples @ 16 kHz, matches openWakeWord's expected frame
+CHUNK_MS = 80           # 1280 samples at 16 kHz; openWakeWord expects this frame size
 SAMPLE_RATE = 16000
 
-# Below this RMS the mic is effectively silent (digital zero plus float noise).
-# A reasonable speaking-into-mic chunk has RMS in the 0.01–0.3 range.
+# Startup probe threshold. All-zero macOS buffers usually mean mic permission
+# is blocked; real speech is far above this.
 MIN_HEALTHY_RMS = 1e-5
 
 log = logging.getLogger("synthesis.audio")
@@ -58,8 +58,7 @@ class MicStream:
 
         def callback(indata, frames, time_info, status):
             if status:
-                # Surface sounddevice status (input overflow, etc.) instead of
-                # dropping it silently — these can mask real mic issues.
+                # Input overflows and device warnings often explain choppy STT.
                 log.warning("sounddevice status: %s", status)
                 return
             chunk = indata[:, 0].copy().astype(np.float32)

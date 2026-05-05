@@ -1,4 +1,4 @@
-"""The BRAIN for Project Synthesis — FastAPI app exposing /converse + dashboard."""
+"""FastAPI entrypoint for the local Synthesis brain and dashboard."""
 
 from typing import Callable
 
@@ -26,11 +26,7 @@ def build_app(
     api_token: str | None = None,
     dashboard_tts_factory: Callable[[], DashboardTTSEngine] | None = None,
 ) -> FastAPI:
-    """Factory used by both production wiring and tests.
-
-    Tests inject a FakeLLM + fresh InMemoryConversationStore.
-    Production wiring at the bottom calls build_app(llm=OllamaClient(...)).
-    """
+    """Build the app with injectable dependencies for production and tests."""
     if store is None:
         store = InMemoryConversationStore()
     use_case = ConverseUseCase(llm=llm, store=store, system_prompt=system_prompt)

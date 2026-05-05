@@ -23,7 +23,7 @@ import shutil
 import sys
 from pathlib import Path
 
-# Allow `python scripts/install_custom_wake_word.py` to import app.*
+# Support running this file directly from the repo root.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -49,7 +49,7 @@ def _validate_onnx_file(path: Path) -> None:
             "are you sure this is a trained ONNX model?"
         )
 
-    # Magic-byte check: ONNX files start with the protobuf magic bytes.
+    # A quick sanity read catches empty or unreadable files before model load.
     with path.open("rb") as f:
         head = f.read(8)
     if not head:

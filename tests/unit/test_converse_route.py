@@ -133,6 +133,7 @@ def test_get_dashboard_returns_html(client: TestClient):
     assert "text/html" in response.headers["content-type"]
     assert "Synthesis" in response.text
     assert "manifest.webmanifest" in response.text
+    assert "/assets/synthesis.png" in response.text
     assert "Voice loop monitor" in response.text
     assert "TTS Studio" in response.text
     assert 'id="wave"' in response.text
@@ -148,14 +149,15 @@ def test_get_manifest_returns_installable_app_metadata(client: TestClient):
     assert body["name"] == "Project Synthesis"
     assert body["display"] == "standalone"
     assert body["start_url"] == "/"
-    assert body["icons"][0]["src"] == "/synthesis-icon.svg"
+    assert body["icons"][0]["src"] == "/assets/synthesis.png"
+    assert body["icons"][0]["type"] == "image/png"
 
 
-def test_get_icon_returns_local_svg_asset(client: TestClient):
-    response = client.get("/synthesis-icon.svg")
+def test_get_logo_returns_local_png_asset(client: TestClient):
+    response = client.get("/assets/synthesis.png")
     assert response.status_code == 200
-    assert response.headers["content-type"].startswith("image/svg+xml")
-    assert "<svg" in response.text
+    assert response.headers["content-type"].startswith("image/png")
+    assert response.content.startswith(b"\x89PNG")
 
 
 def test_post_dashboard_tts_speaks_with_local_engine(fake_llm: FakeLLM):

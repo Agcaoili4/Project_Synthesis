@@ -12,10 +12,11 @@ Long-term, Synthesis aims to be a personal AI in the JARVIS / FRIDAY mold: ambie
 
 ## How it works (v0)
 
-Two cooperating processes on your machine:
+Two core processes on your machine, plus an automatically launched visual surface:
 
 - **Daemon** (`app/daemon.py`) — owns the microphone, wake word, STT, and TTS. Always-on, real-time.
-- **Brain** (`app/main.py`, FastAPI) — owns the LLM, conversation state, and a localhost web dashboard. Restartable without losing the audio loop.
+- **Brain** (`app/main.py`, FastAPI) — owns the LLM, conversation state, and the localhost app console. Restartable without losing the audio loop.
+- **Visualizer** (`scripts/synthesis_visualizer.py`) — pygame window launched by the daemon by default; subscribes to a local event bus and renders state, audio energy, and DNA-style speaking animation.
 
 They communicate over local HTTP. No cloud. No telemetry. Your audio never leaves the box.
 
@@ -34,25 +35,28 @@ They communicate over local HTTP. No cloud. No telemetry. Your audio never leave
   │           ▼ transcript       │         │       ▼                      │
   │       call BRAIN ────────────┼────────►│   return reply               │
   │           ▼ reply text       │ ◄────── │                              │
-  │       local TTS ─────► speakers│       │  GET  /  (HTMX dashboard)    │
+  │       local TTS ─────► speakers│       │  GET  /  (app console)       │
+  │           │                  │         │  POST /dashboard/tts         │
+  │           └── event bus :8765│         │                              │
   └──────────────────────────────┘         └──────────────────────────────┘
-                                                    ▲
-                                                    │ http://localhost:8000
-                                                    └─── browser
+       ▲                                            ▲
+       │                                            │ http://localhost:8000
+       └── pygame visualizer                         └── browser / local app
 ```
 
 ## Stack
 
 | Concern                  | Choice                                                                                                                               |
 | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------ |
-| Wake word                | openWakeWord. Default `hey_jarvis` (pretrained); custom `hey_synthesis` per [docs/wake_word_training.md](docs/wake_word_training.md) |
+| Wake word                | openWakeWord by default (`hey_jarvis`), with optional Whisper wake detection for "Hey Synthesis" without model training.             |
 | Voice activity detection | Silero VAD                                                                                                                           |
 | Speech-to-text           | faster-whisper (`base.en` by default; `small.en` for higher accuracy)                                                                |
 | LLM                      | Qwen 2.5 7B Instruct via Ollama                                                                                                      |
-| Text-to-speech           | MLX-Audio Kokoro by default (`TTS_ENGINE=kokoro`) with macOS `say` fallback.                                                          |
-| Audio I/O                | sounddevice                                                                                                                          |
+| Text-to-speech           | MLX-Audio Kokoro by default (`TTS_ENGINE=kokoro`) with macOS `say` fallback; TTS Studio in the app console.                          |
+| Audio I/O                | sounddevice + scipy resampling for cleaner Kokoro playback                                                                           |
 | Backend                  | FastAPI                                                                                                                              |
-| Dashboard                | Server-rendered HTML + HTMX                                                                                                          |
+| App console              | Local server-rendered HTML using `assets/Synthesis.png` as the product mark                                                          |
+| Visualizer               | pygame, daemon event bus on `127.0.0.1:8765`, auto-started by `app.daemon`, DNA-like speaking animation                              |
 
 Disk footprint: ~6 GB of models. Peak RAM: ~7 GB. Targets 16 GB Apple Silicon comfortably.
 
@@ -66,11 +70,10 @@ project-synthesis/
 │   │
 │   ├── core/
 │   │   ├── config.py                 # Pydantic Settings: model paths, ports, wake word, voice
-│   │   └── logging.py                # structured logging
+│   │   └── security.py               # loopback / bearer-token access guard
 │   │
 │   ├── domain/                       # Pure business logic. NO I/O. NO frameworks.
-│   │   ├── conversation.py           # Conversation, Message, Role
-│   │   └── transcript.py             # Transcript value object
+│   │   └── conversation.py           # Conversation, Message, Role
 │   │
 │   ├── application/                  # Use cases. Orchestrates domain + infrastructure.
 │   │   └── converse.py               # ConverseUseCase: takes transcript, returns reply
@@ -78,16 +81,18 @@ project-synthesis/
 │   ├── infrastructure/               # Adapters to the outside world.
 │   │   ├── llm/ollama_client.py      # talks to Ollama
 │   │   ├── stt/whisper_engine.py     # wraps faster-whisper
+│   │   ├── events/visualizer_bus.py  # local NDJSON event bus for live UI
 │   │   ├── tts/mlx_kokoro_engine.py  # wraps MLX-Audio Kokoro local TTS
 │   │   ├── tts/say_engine.py         # wraps macOS `say` fallback
 │   │   ├── wake/openww_detector.py   # wraps openWakeWord
+│   │   ├── wake/whisper_detector.py  # optional Whisper wake phrase detector
 │   │   ├── vad/silero_vad.py         # silence detection
 │   │   └── audio/io.py               # sounddevice mic + speaker
 │   │
 │   ├── interfaces/                   # FastAPI routes (the brain's HTTP surface)
 │   │   ├── converse_route.py         # POST /converse
 │   │   ├── transcript_route.py       # GET  /transcript/{sid}
-│   │   └── dashboard_route.py        # GET  /  (HTML + HTMX)
+│   │   └── dashboard_route.py        # app console, manifest, logo, TTS Studio
 │   │
 │   └── schemas/                      # Pydantic request/response DTOs
 │       └── converse.py               # ConverseRequest, ConverseResponse
@@ -96,11 +101,15 @@ project-synthesis/
 │   ├── unit/                         # domain + application — no models loaded
 │   └── integration/                  # spin up Ollama + faster-whisper, real I/O
 │
+├── assets/
+│   └── Synthesis.png                 # main logo / visual identity
+├── scripts/
+│   ├── synthesis_visualizer.py       # pygame visualizer
+│   └── install_custom_wake_word.py   # custom openWakeWord installer
 ├── models/                           # downloaded model weights (gitignored)
 ├── .env                              # OLLAMA_URL, model names, ports
 ├── .env.example                      # documents required env vars
 ├── requirements.txt
-├── docker-compose.yml                # parked for now, used in v0.5
 └── README.md
 ```
 
@@ -155,6 +164,10 @@ curl -X POST http://127.0.0.1:8000/converse \
 The Synthesis app console is available at `http://127.0.0.1:8000`. It shows
 local conversation sessions, refreshes the voice transcript, and includes a
 text composer for talking to the local brain without using the microphone.
+It also includes **TTS Studio**, a voice-only test surface that speaks typed
+text through the configured local TTS engine and animates while audio is
+playing. The app uses `assets/Synthesis.png` as its logo and installable web
+app icon.
 
 ### 4. Run the voice daemon
 
@@ -165,7 +178,9 @@ Terminal 2:
 ```
 
 Then say the wake word and start talking. The daemon handles microphone input,
-speech-to-text, the brain request, and local text-to-speech output.
+speech-to-text, the brain request, and local text-to-speech output. It also
+opens the pygame visualizer automatically by default, so you should see the
+Synthesis window appear after startup.
 
 For lower latency, the daemon warms the Whisper model at startup and logs per-turn
 timings for capture, STT, brain, and TTS. Tune `WHISPER_MODEL`,
@@ -186,7 +201,60 @@ Kokoro runs locally through MLX-Audio and plays through `sounddevice`. If
 MLX-Audio is missing or synthesis fails, the daemon logs the issue and falls
 back to macOS `say` for that reply.
 
-### 5. (Optional) Train a custom "Hey Synthesis" wake word
+### 5. Visualizer
+
+The daemon starts a local event bus on `127.0.0.1:8765` and launches the
+pygame visualizer automatically by default. The visualizer runs in bus-only
+mode when launched by the daemon, so it does not compete for the microphone.
+During `SPEAKING`, it smoothly eases from the idle/listening wave into a
+DNA-like animation, then eases back to the wave when Synthesis finishes.
+
+Visualizer settings:
+
+```bash
+VISUALIZER_BUS_ENABLED=true
+VISUALIZER_BUS_HOST=127.0.0.1
+VISUALIZER_BUS_PORT=8765
+VISUALIZER_AUTO_START=true
+```
+
+To stop the daemon from opening pygame automatically:
+
+```bash
+VISUALIZER_AUTO_START=false
+```
+
+Manual modes:
+
+```bash
+.venv/bin/python scripts/synthesis_visualizer.py --no-mic   # bus only
+.venv/bin/python scripts/synthesis_visualizer.py --no-bus   # standalone mic demo
+```
+
+### 6. Wake word options
+
+Default wake detection is openWakeWord:
+
+```bash
+WAKE_ENGINE=openwakeword
+WAKE_MODEL=hey_jarvis
+```
+
+For "Hey Synthesis" without training a custom `.onnx`, use the Whisper wake
+backend:
+
+```bash
+WAKE_ENGINE=whisper
+WAKE_PHRASE=hey synthesis
+WAKE_WHISPER_MODEL=tiny.en
+WAKE_WHISPER_WINDOW_MS=1200
+WAKE_WHISPER_POLL_MS=350
+```
+
+Whisper wake is more flexible, while openWakeWord is lighter and faster once
+you have a matching model.
+
+### 7. (Optional) Train a custom "Hey Synthesis" wake word
 
 Out of the box the daemon listens for **"Hey Jarvis"** because that's the only
 on-brand phrase openWakeWord ships pretrained. To make it respond to literally
@@ -204,7 +272,7 @@ The script validates the file with openWakeWord, copies it to
 pretrained name or a path; the daemon validates and surfaces helpful errors
 for either.
 
-### 6. Run tests
+### 8. Run tests
 
 ```bash
 .venv/bin/python -m pytest tests/unit
@@ -229,8 +297,8 @@ can contain sensitive personal audio and assistant replies.
 
 ## Roadmap
 
-- **v0** — Local voice loop _(in progress)_
-- **v0.5** — Streaming TTS, interruption / barge-in, persistent memory (SQLite), Docker compose
+- **v0** — Local voice loop, app console, TTS Studio, and pygame visualizer _(in progress)_
+- **v0.5** — Streaming TTS, interruption / barge-in, persistent memory (SQLite), packaging polish
 - **v1** — Tool use (calendar, email, web search); ship a pretrained `hey_synthesis.onnx` in the repo
 - **v1.5** — Personality layer / system-prompt persona
 - **v2** — Computer control (open apps, run scripts), vision input

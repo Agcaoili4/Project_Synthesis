@@ -1,8 +1,8 @@
 """TTS adapter for local MLX-Audio Kokoro voices.
 
-MLX-Audio is optional because it only makes sense on Apple Silicon. This
-adapter keeps `say` available as a fallback so the daemon can still speak if
-Kokoro is not installed yet or the model cannot be loaded.
+MLX-Audio is optional and mainly targets Apple Silicon. This adapter keeps
+`say` available as a fallback so the daemon can still speak if Kokoro is not
+installed yet or the model cannot be loaded.
 """
 
 import asyncio
@@ -10,7 +10,7 @@ import logging
 from dataclasses import dataclass
 from math import gcd
 from pathlib import Path
-from typing import Protocol
+from typing import Callable, Protocol
 
 import numpy as np
 import sounddevice as sd
@@ -23,6 +23,11 @@ SEGMENT_GAP_MS = 12
 OUTPUT_START_PAD_MS = 30
 OUTPUT_END_PAD_MS = 80
 PEAK_HEADROOM = 0.92
+# Level listener cadence for the visualizer. The renderer smooths these
+# ~20 updates/sec into its 60 FPS animation loop.
+LEVEL_CHUNK_MS = 50
+
+LevelListener = Callable[[np.ndarray, int], None]
 
 
 class TTSEngine(Protocol):
@@ -58,9 +63,19 @@ class MLXKokoroTTSEngine:
         self._output_device = output_device
         self._fallback = fallback
         self._model = None
+        self._level_listener: LevelListener | None = None
+
+    def set_level_listener(self, listener: LevelListener | None) -> None:
+        """Register a callback that receives slices of about-to-play PCM.
+
+        The visualizer uses this to follow Synthesis's own voice during
+        SPEAKING. The callback runs inside the playback worker thread, so it
+        must stay quick and avoid async primitives.
+        """
+        self._level_listener = listener
 
     async def warm_up(self) -> None:
-        """Load the model at daemon startup so first speech is not surprising."""
+        """Load the model at daemon startup to avoid first-reply delay."""
         try:
             await asyncio.to_thread(self._load_model)
         except Exception as exc:
@@ -201,14 +216,30 @@ class MLXKokoroTTSEngine:
 
     def _play(self, segment: AudioSegment) -> None:
         playback = self._prepare_for_output_device(segment)
+        samples = playback.samples
+        sample_rate = playback.sample_rate
+
+        # Publish levels immediately before each write so the visualizer tracks
+        # the audio the user is about to hear.
+        chunk_size = max(1, int(sample_rate * LEVEL_CHUNK_MS / 1000))
+        listener = self._level_listener
+
         with sd.OutputStream(
-            samplerate=playback.sample_rate,
+            samplerate=sample_rate,
             channels=1,
             dtype="float32",
             device=self._output_device,
             latency="high",
         ) as stream:
-            stream.write(playback.samples.reshape(-1, 1))
+            for offset in range(0, samples.size, chunk_size):
+                slice_ = samples[offset:offset + chunk_size]
+                if listener is not None:
+                    try:
+                        listener(slice_, sample_rate)
+                    except Exception as exc:  # noqa: BLE001
+                        # Visualizer telemetry is optional; speech playback is not.
+                        log.debug("tts level listener raised: %s", exc)
+                stream.write(slice_.reshape(-1, 1))
 
     def _prepare_for_output_device(self, segment: AudioSegment) -> AudioSegment:
         sample_rate = self._output_sample_rate() or segment.sample_rate
