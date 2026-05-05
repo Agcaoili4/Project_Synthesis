@@ -152,7 +152,9 @@ curl -X POST http://127.0.0.1:8000/converse \
   -d '{"transcript":"hello","session_id":"manual-test"}'
 ```
 
-The dashboard is available at `http://127.0.0.1:8000`.
+The Synthesis app console is available at `http://127.0.0.1:8000`. It shows
+local conversation sessions, refreshes the voice transcript, and includes a
+text composer for talking to the local brain without using the microphone.
 
 ### 4. Run the voice daemon
 
@@ -167,8 +169,10 @@ speech-to-text, the brain request, and local text-to-speech output.
 
 For lower latency, the daemon warms the Whisper model at startup and logs per-turn
 timings for capture, STT, brain, and TTS. Tune `WHISPER_MODEL`,
-`VAD_SILENCE_MS`, and `NO_SPEECH_TIMEOUT_S` in `.env` if you want to trade
-speed against accuracy or cutoff tolerance.
+`WAKE_PRE_ROLL_MS`, `VAD_SILENCE_MS`, and `NO_SPEECH_TIMEOUT_S` in `.env` if
+you want to trade speed against accuracy or cutoff tolerance. The wake chime is
+off by default (`WAKE_CHIME_ENABLED=false`) so the wake-to-listen handoff is as
+fast as possible; set it to `true` if you prefer an audible confirmation.
 
 Kokoro is the default voice engine. To configure it explicitly, set:
 

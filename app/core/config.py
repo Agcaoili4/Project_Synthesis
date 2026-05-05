@@ -48,6 +48,8 @@ class Settings(BaseSettings):
     # Wake word
     wake_model: str = "hey_jarvis"
     wake_threshold: float = 0.5
+    wake_chime_enabled: bool = False
+    wake_pre_roll_ms: int = 160
 
     vad_silence_ms: int = 600
     no_speech_timeout_s: float = 4.0

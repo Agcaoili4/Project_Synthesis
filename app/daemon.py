@@ -52,7 +52,6 @@ class State(Enum):
 
 
 MAX_UTTERANCE_S = 15
-PRE_ROLL_MS = 320  # keep this much audio from before the wake fired
 
 
 async def run_loop() -> None:
@@ -98,7 +97,8 @@ async def run_loop() -> None:
     )
 
     state = State.IDLE
-    pre_roll = deque(maxlen=PRE_ROLL_MS // CHUNK_MS)
+    pre_roll_chunks = max(1, s.wake_pre_roll_ms // CHUNK_MS)
+    pre_roll = deque(maxlen=pre_roll_chunks)
     utterance: list[np.ndarray] = []
     utterance_started_at = 0.0
     turn_started_at = 0.0
@@ -117,7 +117,9 @@ async def run_loop() -> None:
                 pre_roll.append(chunk)
                 if wake.feed(chunk):
                     log.info("wake!")
-                    play_chime()
+                    wake.reset()
+                    if s.wake_chime_enabled:
+                        play_chime()
                     state = State.LISTENING
                     vad.reset()
                     utterance = list(pre_roll)

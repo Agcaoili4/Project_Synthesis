@@ -8,6 +8,7 @@ Kokoro is not installed yet or the model cannot be loaded.
 import asyncio
 import logging
 from dataclasses import dataclass
+from math import gcd
 from pathlib import Path
 from typing import Protocol
 
@@ -19,6 +20,8 @@ import soundfile as sf
 log = logging.getLogger("synthesis.tts.kokoro")
 FADE_MS = 8
 SEGMENT_GAP_MS = 12
+OUTPUT_START_PAD_MS = 30
+OUTPUT_END_PAD_MS = 80
 PEAK_HEADROOM = 0.92
 
 
@@ -197,9 +200,51 @@ class MLXKokoroTTSEngine:
         return np.clip(samples, -PEAK_HEADROOM, PEAK_HEADROOM).astype(np.float32)
 
     def _play(self, segment: AudioSegment) -> None:
-        sd.play(
-            segment.samples,
-            segment.sample_rate,
-            blocking=True,
+        playback = self._prepare_for_output_device(segment)
+        with sd.OutputStream(
+            samplerate=playback.sample_rate,
+            channels=1,
+            dtype="float32",
             device=self._output_device,
-        )
+            latency="high",
+        ) as stream:
+            stream.write(playback.samples.reshape(-1, 1))
+
+    def _prepare_for_output_device(self, segment: AudioSegment) -> AudioSegment:
+        sample_rate = self._output_sample_rate() or segment.sample_rate
+        samples = self._resample_audio(segment.samples, segment.sample_rate, sample_rate)
+        samples = self._fade_edges(samples, sample_rate)
+        samples = self._pad_silence(samples, sample_rate)
+        samples = self._limit_peak(samples)
+        return AudioSegment(samples=samples, sample_rate=sample_rate)
+
+    def _output_sample_rate(self) -> int | None:
+        try:
+            device_info = sd.query_devices(self._output_device, "output")
+            return int(round(float(device_info["default_samplerate"])))
+        except Exception as exc:
+            log.warning("could not resolve output device sample rate; using Kokoro rate: %s", exc)
+            return None
+
+    def _resample_audio(
+        self,
+        samples: np.ndarray,
+        source_rate: int,
+        target_rate: int,
+    ) -> np.ndarray:
+        if source_rate == target_rate or samples.size == 0:
+            return samples.astype(np.float32)
+
+        from scipy.signal import resample_poly
+
+        divisor = gcd(source_rate, target_rate)
+        up = target_rate // divisor
+        down = source_rate // divisor
+        return resample_poly(samples, up, down).astype(np.float32)
+
+    def _pad_silence(self, samples: np.ndarray, sample_rate: int) -> np.ndarray:
+        start_samples = int(sample_rate * OUTPUT_START_PAD_MS / 1000)
+        end_samples = int(sample_rate * OUTPUT_END_PAD_MS / 1000)
+        if start_samples <= 0 and end_samples <= 0:
+            return samples.astype(np.float32)
+        return np.pad(samples, (start_samples, end_samples)).astype(np.float32)

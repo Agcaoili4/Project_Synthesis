@@ -20,6 +20,21 @@ class FailingLLM:
         raise RuntimeError("backend down")
 
 
+class FakeTTS:
+    def __init__(self, fail: bool = False) -> None:
+        self.fail = fail
+        self.spoken: list[str] = []
+        self.warmed = False
+
+    async def warm_up(self) -> None:
+        self.warmed = True
+
+    async def speak(self, text: str) -> None:
+        if self.fail:
+            raise RuntimeError("speaker down")
+        self.spoken.append(text)
+
+
 @pytest.fixture
 def fake_llm() -> FakeLLM:
     return FakeLLM(reply="Paris")
@@ -117,7 +132,74 @@ def test_get_dashboard_returns_html(client: TestClient):
     assert response.status_code == 200
     assert "text/html" in response.headers["content-type"]
     assert "Synthesis" in response.text
+    assert "manifest.webmanifest" in response.text
+    assert "Voice loop monitor" in response.text
+    assert "TTS Studio" in response.text
+    assert 'id="wave"' in response.text
+    assert "/dashboard/tts" in response.text
     assert "https://unpkg.com" not in response.text
+
+
+def test_get_manifest_returns_installable_app_metadata(client: TestClient):
+    response = client.get("/manifest.webmanifest")
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("application/manifest+json")
+    body = response.json()
+    assert body["name"] == "Project Synthesis"
+    assert body["display"] == "standalone"
+    assert body["start_url"] == "/"
+    assert body["icons"][0]["src"] == "/synthesis-icon.svg"
+
+
+def test_get_icon_returns_local_svg_asset(client: TestClient):
+    response = client.get("/synthesis-icon.svg")
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("image/svg+xml")
+    assert "<svg" in response.text
+
+
+def test_post_dashboard_tts_speaks_with_local_engine(fake_llm: FakeLLM):
+    tts = FakeTTS()
+    app = build_app(
+        llm=fake_llm,
+        store=InMemoryConversationStore(),
+        dashboard_tts_factory=lambda: tts,
+    )
+    client = TestClient(app)
+
+    response = client.post("/dashboard/tts", json={"text": "hello voice"})
+
+    assert response.status_code == 200
+    assert response.json() == {"ok": True}
+    assert tts.warmed is True
+    assert tts.spoken == ["hello voice"]
+
+
+def test_post_dashboard_tts_rejects_blank_text(fake_llm: FakeLLM):
+    app = build_app(
+        llm=fake_llm,
+        store=InMemoryConversationStore(),
+        dashboard_tts_factory=lambda: FakeTTS(),
+    )
+    client = TestClient(app)
+
+    response = client.post("/dashboard/tts", json={"text": "   "})
+
+    assert response.status_code == 422
+
+
+def test_post_dashboard_tts_returns_503_when_engine_fails(fake_llm: FakeLLM):
+    app = build_app(
+        llm=fake_llm,
+        store=InMemoryConversationStore(),
+        dashboard_tts_factory=lambda: FakeTTS(fail=True),
+    )
+    client = TestClient(app)
+
+    response = client.post("/dashboard/tts", json={"text": "hello"})
+
+    assert response.status_code == 503
+    assert "local TTS unavailable" in response.json()["detail"]
 
 
 def test_dashboard_escapes_transcript_content(
@@ -131,6 +213,16 @@ def test_dashboard_escapes_transcript_content(
     assert response.status_code == 200
     assert "<b>xss</b>" not in response.text
     assert "&lt;b&gt;xss&lt;/b&gt;" in response.text
+
+
+def test_dashboard_escapes_session_id(client: TestClient):
+    client.post(
+        "/converse",
+        json={"transcript": "hello", "session_id": "safe-session"},
+    )
+    response = client.get("/dashboard/transcripts")
+    assert response.status_code == 200
+    assert 'data-session-id="safe-session"' in response.text
 
 
 def test_transcript_and_dashboard_hide_system_prompt(fake_llm: FakeLLM):

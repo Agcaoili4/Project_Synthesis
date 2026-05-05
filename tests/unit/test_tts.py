@@ -108,6 +108,25 @@ def test_kokoro_render_rejects_mixed_sample_rates(monkeypatch):
         tts._render_audio("hello")
 
 
+def test_kokoro_output_preparation_resamples_and_pads(monkeypatch):
+    tts = MLXKokoroTTSEngine()
+    monkeypatch.setattr(tts, "_output_sample_rate", lambda: 48000)
+
+    segment = AudioSegment(
+        samples=np.linspace(-0.5, 0.5, 240, dtype=np.float32),
+        sample_rate=24000,
+    )
+
+    prepared = tts._prepare_for_output_device(segment)
+
+    assert prepared.sample_rate == 48000
+    assert prepared.samples.dtype == np.float32
+    assert len(prepared.samples) > len(segment.samples) * 2
+    assert prepared.samples[0] == pytest.approx(0.0)
+    assert prepared.samples[-1] == pytest.approx(0.0)
+    assert np.max(np.abs(prepared.samples)) <= 0.92
+
+
 def test_factory_builds_say_engine(monkeypatch):
     import app.infrastructure.tts.factory as factory
 

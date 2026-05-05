@@ -17,6 +17,7 @@ dependencies = [
     "silero-vad==5.1.2",
     "sounddevice==0.5.3",
     "numpy==1.26.4",
+    "scipy==1.17.1",
     "soundfile==0.12.1",
     "loguru==0.7.3",
     "python-dotenv==1.0.1",

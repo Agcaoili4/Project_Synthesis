@@ -1,5 +1,7 @@
 """The BRAIN for Project Synthesis — FastAPI app exposing /converse + dashboard."""
 
+from typing import Callable
+
 from fastapi import FastAPI, Request
 
 from app.application.converse import (
@@ -10,7 +12,10 @@ from app.application.converse import (
 )
 from app.core.security import require_local_or_token
 from app.interfaces.converse_route import build_router as build_converse_router
-from app.interfaces.dashboard_route import build_router as build_dashboard_router
+from app.interfaces.dashboard_route import (
+    DashboardTTSEngine,
+    build_router as build_dashboard_router,
+)
 from app.interfaces.transcript_route import build_router as build_transcript_router
 
 
@@ -19,6 +24,7 @@ def build_app(
     store: ConversationStore | None = None,
     system_prompt: str | None = None,
     api_token: str | None = None,
+    dashboard_tts_factory: Callable[[], DashboardTTSEngine] | None = None,
 ) -> FastAPI:
     """Factory used by both production wiring and tests.
 
@@ -39,7 +45,9 @@ def build_app(
     app.include_router(build_converse_router(use_case))
     if isinstance(store, InMemoryConversationStore):
         app.include_router(build_transcript_router(store))
-        app.include_router(build_dashboard_router(store))
+        app.include_router(
+            build_dashboard_router(store, tts_engine_factory=dashboard_tts_factory)
+        )
     return app
 
 
