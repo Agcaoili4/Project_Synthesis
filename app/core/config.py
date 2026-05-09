@@ -68,6 +68,17 @@ class Settings(BaseSettings):
     visualizer_bus_port: int = 8765
     visualizer_auto_start: bool = True
 
+    # --- Memory (v0.5) ---
+    # Long-term semantic recall of past turn-pairs. Off by default; flip to
+    # true once `ollama pull nomic-embed-text` has succeeded and
+    # scripts/smoke_memory.py prints sensible recall.
+    memory_enabled: bool = False
+    memory_db_path: str = "data/synthesis_memory.db"
+    memory_embed_model: str = "nomic-embed-text"
+    memory_embed_dim: int = 768
+    memory_recall_top_k: int = 3
+    memory_recall_threshold: float = 0.65
+
 
 @lru_cache
 def get_settings() -> Settings:

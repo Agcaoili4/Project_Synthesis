@@ -18,6 +18,11 @@ env/
 # --- Models (downloaded weights — never commit) ---
 models/
 
+# --- Memory store (per-machine; never commit) ---
+data/*.db
+data/*.db-shm
+data/*.db-wal
+
 # --- macOS ---
 .DS_Store
 

@@ -46,17 +46,18 @@ They communicate over local HTTP. No cloud. No telemetry. Your audio never leave
 
 ## Stack
 
-| Concern                  | Choice                                                                                                                               |
-| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------ |
-| Wake word                | openWakeWord by default (`hey_jarvis`), with optional Whisper wake detection for "Hey Synthesis" without model training.             |
-| Voice activity detection | Silero VAD                                                                                                                           |
-| Speech-to-text           | faster-whisper (`base.en` by default; `small.en` for higher accuracy)                                                                |
-| LLM                      | Qwen 2.5 7B Instruct via Ollama                                                                                                      |
-| Text-to-speech           | MLX-Audio Kokoro by default (`TTS_ENGINE=kokoro`) with macOS `say` fallback; TTS Studio in the app console.                          |
-| Audio I/O                | sounddevice + scipy resampling for cleaner Kokoro playback                                                                           |
-| Backend                  | FastAPI                                                                                                                              |
-| App console              | Local server-rendered HTML using `assets/Synthesis.png` as the product mark                                                          |
-| Visualizer               | pygame, daemon event bus on `127.0.0.1:8765`, auto-started by `app.daemon`, DNA-like speaking animation                              |
+| Concern                  | Choice                                                                                                                   |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------ |
+| Wake word                | openWakeWord by default (`hey_jarvis`), with optional Whisper wake detection for "Hey Synthesis" without model training. |
+| Voice activity detection | Silero VAD                                                                                                               |
+| Speech-to-text           | faster-whisper (`base.en` by default; `small.en` for higher accuracy)                                                    |
+| LLM                      | Qwen 2.5 7B Instruct via Ollama                                                                                          |
+| Text-to-speech           | MLX-Audio Kokoro by default (`TTS_ENGINE=kokoro`) with macOS `say` fallback; TTS Studio in the app console.              |
+| Audio I/O                | sounddevice + scipy resampling for cleaner Kokoro playback                                                               |
+| Backend                  | FastAPI                                                                                                                  |
+| App console              | Local server-rendered HTML using `assets/Synthesis.png` as the product mark                                              |
+| Visualizer               | pygame, daemon event bus on `127.0.0.1:8765`, auto-started by `app.daemon`, DNA-like speaking animation                  |
+| Long-term memory         | SQLite + `sqlite-vec`, embeddings via Ollama `nomic-embed-text`, semantic recall injected into the LLM prompt            |
 
 Disk footprint: ~6 GB of models. Peak RAM: ~7 GB. Targets 16 GB Apple Silicon comfortably.
 
@@ -87,6 +88,8 @@ project-synthesis/
 │   │   ├── wake/openww_detector.py   # wraps openWakeWord
 │   │   ├── wake/whisper_detector.py  # optional Whisper wake phrase detector
 │   │   ├── vad/silero_vad.py         # silence detection
+│   │   ├── embeddings/ollama_embedder.py  # nomic-embed-text via Ollama
+│   │   ├── memory/sqlite_vec_repository.py # SQLite + sqlite-vec store
 │   │   └── audio/io.py               # sounddevice mic + speaker
 │   │
 │   ├── interfaces/                   # FastAPI routes (the brain's HTTP surface)
@@ -105,7 +108,10 @@ project-synthesis/
 │   └── Synthesis.png                 # main logo / visual identity
 ├── scripts/
 │   ├── synthesis_visualizer.py       # pygame visualizer
-│   └── install_custom_wake_word.py   # custom openWakeWord installer
+│   ├── install_custom_wake_word.py   # custom openWakeWord installer
+│   ├── memory.py                     # CLI: stats / list / search / forget / wipe
+│   └── smoke_memory.py               # manual recall sanity check
+├── data/                             # gitignored: synthesis_memory.db lives here
 ├── models/                           # downloaded model weights (gitignored)
 ├── .env                              # OLLAMA_URL, model names, ports
 ├── .env.example                      # documents required env vars
@@ -272,7 +278,59 @@ The script validates the file with openWakeWord, copies it to
 pretrained name or a path; the daemon validates and surfaces helpful errors
 for either.
 
-### 8. Run tests
+### 8. Long-term memory (semantic recall)
+
+Synthesis can remember past turn-pairs and silently surface the relevant
+ones the next time you bring up a related topic. The flow:
+
+```
+user transcript ──► nomic-embed-text (Ollama) ──► top-K vector search
+                                                       │
+                                                       ▼
+                                       <memory> block injected as a
+                                       SYSTEM message just before the
+                                       user turn, then the LLM replies.
+```
+
+After the reply is sent, the (user, assistant) pair is embedded and
+written to `data/synthesis_memory.db` in the background — your turn
+isn't blocked on storage.
+
+Off by default while iterating. To enable:
+
+```bash
+ollama pull nomic-embed-text                          # ~270 MB, one-time
+.venv/bin/python scripts/smoke_memory.py              # sanity-check recall
+# then set MEMORY_ENABLED=true in your .env
+```
+
+Inspect, search, or forget memories with the CLI:
+
+```bash
+.venv/bin/python -m scripts.memory stats
+.venv/bin/python -m scripts.memory list --limit 20
+.venv/bin/python -m scripts.memory search "favorite color" --top-k 5
+.venv/bin/python -m scripts.memory show <id>
+.venv/bin/python -m scripts.memory forget <id>
+.venv/bin/python -m scripts.memory wipe --yes
+```
+
+Failure modes degrade gracefully: if Ollama or sqlite-vec is unavailable,
+the brain logs a warning and serves turns without memory injection — the
+voice loop never breaks because of memory.
+
+Tunables in `.env`:
+
+```bash
+MEMORY_ENABLED=true
+MEMORY_DB_PATH=data/synthesis_memory.db
+MEMORY_EMBED_MODEL=nomic-embed-text
+MEMORY_EMBED_DIM=768
+MEMORY_RECALL_TOP_K=3
+MEMORY_RECALL_THRESHOLD=0.65
+```
+
+### 9. Run tests
 
 ```bash
 .venv/bin/python -m pytest tests/unit
@@ -297,8 +355,13 @@ can contain sensitive personal audio and assistant replies.
 
 ## Roadmap
 
-- **v0** — Local voice loop, app console, TTS Studio, and pygame visualizer _(in progress)_
-- **v0.5** — Streaming TTS, interruption / barge-in, persistent memory (SQLite), packaging polish
+- **v0** — Local voice loop, app console, TTS Studio, and pygame visualizer _(Done)_
+- **v0.5** _(in progress)_ —
+  - **Semantic memory** — SQLite + `sqlite-vec`, Ollama `nomic-embed-text` embeddings, always-on threshold-gated recall, CLI inspection _(Done)_
+  - Streaming TTS — separate spec, not yet started
+  - Interruption / barge-in — separate spec, depends on streaming TTS
+  - Packaging polish — separate spec, last in the v0.5 sequence
+- **v0.6** — App-console memory panel; auto-summarization layer over turn-pair recall
 - **v1** — Tool use (calendar, email, web search); ship a pretrained `hey_synthesis.onnx` in the repo
 - **v1.5** — Personality layer / system-prompt persona
 - **v2** — Computer control (open apps, run scripts), vision input
