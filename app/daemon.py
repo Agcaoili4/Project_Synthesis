@@ -314,7 +314,7 @@ async def run_loop() -> None:
                     pre_roll.clear()
                     utterance = []
 
-
+# Daemon entry point, can be interrupted when user press Ctrl+C
 def main() -> None:
     logging.basicConfig(
         level=logging.INFO,
